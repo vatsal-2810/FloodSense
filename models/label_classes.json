@@ -1,0 +1,16 @@
+{
+  "land_cover": [
+    "Agricultural",
+    "Desert",
+    "Forest",
+    "Urban",
+    "Water Body"
+  ],
+  "soil_type": [
+    "Clay",
+    "Loam",
+    "Peat",
+    "Sandy",
+    "Silt"
+  ]
+}
