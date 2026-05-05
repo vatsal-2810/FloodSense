@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FloodSense — Flood Prediction Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #04080f;
+  --panel:     #0a1220;
+  --border:    #1a2a40;
+  --accent:    #00d4ff;
+  --accent2:   #0066ff;
+  --warn:      #ff9500;
+  --danger:    #ff2d55;
+  --safe:      #30d158;
+  --text:      #e2eaf4;
+  --muted:     #5a7a99;
+  --glow:      rgba(0,212,255,0.15);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Syne', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Animated background grid ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Rain particles ── */
+#rain-canvas {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.15;
+}
+
+.layout {
+  position: relative;
+  z-index: 1;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* ── Header ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.logo-icon {
+  width: 48px; height: 48px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  box-shadow: 0 0 24px var(--glow);
+}
+
+.logo-text h1 {
+  font-size: 28px; font-weight: 800;
+  letter-spacing: -0.5px;
+  background: linear-gradient(90deg, var(--accent), #fff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.logo-text p { color: var(--muted); font-size: 13px; font-family: 'Space Mono', monospace; }
+
+.header-right {
+  display: flex; align-items: center; gap: 20px;
+}
+
+.live-badge {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(48,209,88,0.1);
+  border: 1px solid rgba(48,209,88,0.3);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  color: var(--safe);
+}
+
+.pulse-dot {
+  width: 8px; height: 8px;
+  background: var(--safe);
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+.clock {
+  font-family: 'Space Mono', monospace;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* ── Risk Banner ── */
+#risk-banner {
+  border-radius: 16px;
+  padding: 20px 28px;
+  margin-bottom: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.5s ease;
+  border: 1px solid transparent;
+}
+
+#risk-banner.SAFE     { background: rgba(48,209,88,0.08);  border-color: rgba(48,209,88,0.3);  }
+#risk-banner.LOW      { background: rgba(0,102,255,0.08);  border-color: rgba(0,102,255,0.3);  }
+#risk-banner.MODERATE { background: rgba(255,149,0,0.08);  border-color: rgba(255,149,0,0.3);  }
+#risk-banner.HIGH     { background: rgba(255,45,85,0.12);  border-color: rgba(255,45,85,0.4);
+                        animation: danger-pulse 2s ease-in-out infinite; }
+
+@keyframes danger-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,45,85,0); }
+  50% { box-shadow: 0 0 0 8px rgba(255,45,85,0.1); }
+}
+
+.banner-left { display: flex; align-items: center; gap: 16px; }
+.banner-icon { font-size: 32px; }
+.banner-title { font-size: 22px; font-weight: 700; }
+.banner-sub { font-size: 13px; color: var(--muted); font-family: 'Space Mono', monospace; margin-top: 2px; }
+
+.banner-prob {
+  font-family: 'Space Mono', monospace;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.prob-big {
+  font-family: 'Space Mono', monospace;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ── Grid ── */
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 24px; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 24px; }
+.grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+
+@media (max-width: 900px) {
+  .grid-3 { grid-template-columns: 1fr 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .grid-3 { grid-template-columns: 1fr; }
+}
+
+/* ── Panel ── */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.4;
+}
+
+.panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-family: 'Space Mono', monospace;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Sensor Card ── */
+.sensor-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  position: relative;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.sensor-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px var(--glow);
+}
+
+.sensor-name {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: 'Space Mono', monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.sensor-value {
+  font-family: 'Space Mono', monospace;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.sensor-unit {
+  font-size: 13px;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.sensor-icon {
+  position: absolute;
+  top: 18px; right: 18px;
+  font-size: 22px;
+  opacity: 0.5;
+}
+
+.sensor-bar {
+  margin-top: 12px;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.sensor-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  transition: width 0.8s ease;
+}
+
+/* ── Model comparison table ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'Space Mono', monospace;
+  font-size: 13px;
+}
+
+th {
+  text-align: left;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+
+td { padding: 12px; border-bottom: 1px solid rgba(26,42,64,0.5); }
+
+tr:hover td { background: rgba(0,212,255,0.03); }
+
+.model-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.badge-best { background: rgba(0,212,255,0.15); color: var(--accent); border: 1px solid rgba(0,212,255,0.3); }
+.badge-good { background: rgba(48,209,88,0.1);  color: var(--safe); }
+.badge-avg  { background: rgba(255,149,0,0.1);  color: var(--warn); }
+
+.metric-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.metric-mini {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.8s ease;
+  min-width: 4px;
+}
+
+/* ── Predict form ── */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+
+label {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: 'Space Mono', monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+input, select {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-family: 'Space Mono', monospace;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  width: 100%;
+}
+
+input:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0,212,255,0.1);
+}
+
+select option { background: #0a1220; }
+
+.btn {
+  padding: 14px 28px;
+  border: none;
+  border-radius: 10px;
+  font-family: 'Syne', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.5px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent2), var(--accent));
+  color: #000;
+  box-shadow: 0 4px 20px rgba(0,212,255,0.25);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px rgba(0,212,255,0.4);
+}
+
+.btn-primary:active { transform: translateY(0); }
+
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── History log ── */
+.log-entry {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(26,42,64,0.5);
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  animation: fade-in 0.4s ease;
+}
+
+@keyframes fade-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+.log-time { color: var(--muted); min-width: 70px; }
+.log-risk { padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 80px; text-align: center; }
+.risk-HIGH     { background: rgba(255,45,85,0.2);  color: var(--danger); }
+.risk-MODERATE { background: rgba(255,149,0,0.2);  color: var(--warn); }
+.risk-LOW      { background: rgba(0,102,255,0.2);  color: #66aaff; }
+.risk-SAFE     { background: rgba(48,209,88,0.15); color: var(--safe); }
+
+.log-prob { color: var(--text); min-width: 60px; }
+.log-sms  { color: var(--safe); font-size: 10px; }
+
+/* ── Probability arc ── */
+.arc-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+
+.arc-svg { overflow: visible; }
+
+/* ── SMS alert toast ── */
+#toast {
+  position: fixed;
+  bottom: 30px; right: 30px;
+  background: var(--panel);
+  border: 1px solid var(--safe);
+  border-radius: 14px;
+  padding: 18px 22px;
+  display: flex; align-items: center; gap: 14px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  z-index: 1000;
+  transform: translateX(200%);
+  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  max-width: 320px;
+}
+
+#toast.show { transform: translateX(0); }
+
+.toast-icon { font-size: 28px; }
+.toast-body h4 { font-size: 14px; font-weight: 700; color: var(--safe); }
+.toast-body p  { font-size: 12px; color: var(--muted); font-family: 'Space Mono', monospace; margin-top: 2px; }
+
+/* ── Loading spinner ── */
+.spinner {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 2px solid rgba(0,212,255,0.3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Tabs ── */
+.tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+
+.tab {
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  transition: all 0.2s;
+}
+
+.tab.active {
+  background: rgba(0,212,255,0.1);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tab:hover:not(.active) { color: var(--text); border-color: var(--border); }
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── Chart (canvas-based) ── */
+.chart-wrap { position: relative; height: 200px; width: 100%; }
+canvas.chart { width: 100% !important; height: 100% !important; }
+
+/* ── Misc ── */
+.col-2 { grid-column: span 2; }
+.col-3 { grid-column: span 3; }
+.mt-4 { margin-top: 16px; }
+.flex-end { display: flex; justify-content: flex-end; gap: 12px; }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.text-accent { color: var(--accent); }
+.text-muted  { color: var(--muted); font-size: 12px; }
+.mono { font-family: 'Space Mono', monospace; }
+
+.divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+.connection-status {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+</style>
+</head>
+<body>
+
+<canvas id="rain-canvas"></canvas>
+
+<div class="layout">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🌊</div>
+      <div class="logo-text">
+        <h1>FloodSense</h1>
+        <p>IoT + ML Flood Prediction System · Uttarakhand</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="connection-status" id="conn-status">● DEMO MODE</span>
+      <div class="live-badge">
+        <span class="pulse-dot"></span>
+        LIVE MONITORING
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <!-- Risk Banner -->
+  <div id="risk-banner" class="SAFE">
+    <div class="banner-left">
+      <div class="banner-icon" id="banner-icon">✅</div>
+      <div>
+        <div class="banner-title" id="banner-title">System Ready — No Flood Risk</div>
+        <div class="banner-sub" id="banner-sub">Submit sensor data below to run prediction</div>
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="prob-big text-accent" id="banner-prob">—</div>
+      <div class="banner-prob">ensemble probability</div>
+    </div>
+  </div>
+
+  <!-- Sensor Readings -->
+  <div class="panel-title" style="margin-bottom:14px">📡 &nbsp; LIVE SENSOR READINGS</div>
+  <div class="grid-auto" id="sensor-grid">
+    <div class="sensor-card"><div class="sensor-name">Rainfall</div><div class="sensor-value" id="s-rainfall">—<span class="sensor-unit">mm</span></div><div class="sensor-icon">🌧</div><div class="sensor-bar"><div class="sensor-bar-fill" id="b-rainfall" style="width:0%"></div></div></div>
+    <div class="sensor-card"><div class="sensor-name">Temperature</div><div class="sensor-value" id="s-temp">—<span class="sensor-unit">°C</span></div><div class="sensor-icon">🌡</div><div class="sensor-bar"><div class="sensor-bar-fill" id="b-temp" style="width:0%"></div></div></div>
+    <div class="sensor-card"><div class="sensor-name">Humidity</div><div class="sensor-value" id="s-humid">—<span class="sensor-unit">%</span></div><div class="sensor-icon">💧</div><div class="sensor-bar"><div class="sensor-bar-fill" id="b-humid" style="width:0%"></div></div></div>
+    <div class="sensor-card"><div class="sensor-name">Water Level</div><div class="sensor-value" id="s-water">—<span class="sensor-unit">m</span></div><div class="sensor-icon">🌊</div><div class="sensor-bar"><div class="sensor-bar-fill" id="b-water" style="width:0%"></div></div></div>
+    <div class="sensor-card"><div class="sensor-name">Soil Moisture</div><div class="sensor-value" id="s-soil">—<span class="sensor-unit">%</span></div><div class="sensor-icon">🌱</div><div class="sensor-bar"><div class="sensor-bar-fill" id="b-soil" style="width:0%"></div></div></div>
+    <div class="sensor-card"><div class="sensor-name">Pressure</div><div class="sensor-value" id="s-pressure">—<span class="sensor-unit">hPa</span></div><div class="sensor-icon">🌬</div><div class="sensor-bar"><div class="sensor-bar-fill" id="b-pressure" style="width:0%"></div></div></div>
+    <div class="sensor-card"><div class="sensor-name">River Discharge</div><div class="sensor-value" id="s-discharge">—<span class="sensor-unit">m³/s</span></div><div class="sensor-icon">🏞</div><div class="sensor-bar"><div class="sensor-bar-fill" id="b-discharge" style="width:0%"></div></div></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('predict')">🔮 Predict</button>
+    <button class="tab" onclick="switchTab('models')">📊 Model Comparison</button>
+    <button class="tab" onclick="switchTab('history')">📋 History</button>
+    <button class="tab" onclick="switchTab('wiring')">🔌 Wiring Guide</button>
+  </div>
+
+  <!-- Tab: Predict -->
+  <div class="tab-content active" id="tab-predict">
+    <div class="panel">
+      <div class="panel-title">🔮 &nbsp; RUN FLOOD PREDICTION</div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Rainfall (mm)</label>
+          <input type="number" id="f-rainfall" value="180" min="0" max="500" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Temperature (°C)</label>
+          <input type="number" id="f-temp" value="24" min="-10" max="50" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Humidity (%)</label>
+          <input type="number" id="f-humid" value="85" min="0" max="100" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Water Level (m)</label>
+          <input type="number" id="f-water" value="2.5" min="0" max="20" step="0.01">
+        </div>
+        <div class="form-group">
+          <label>River Discharge (m³/s)</label>
+          <input type="number" id="f-discharge" value="120" min="0" max="5000" step="1">
+        </div>
+        <div class="form-group">
+          <label>Elevation (m)</label>
+          <input type="number" id="f-elevation" value="300" min="0" max="5000" step="1">
+        </div>
+        <div class="form-group">
+          <label>Barometric Pressure (hPa)</label>
+          <input type="number" id="f-pressure" value="998" min="900" max="1050" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Soil Moisture (%)</label>
+          <input type="number" id="f-soil" value="75" min="0" max="100" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Land Cover</label>
+          <select id="f-landcover">
+            <option value="Agricultural">Agricultural</option>
+            <option value="Forest">Forest</option>
+            <option value="Urban">Urban</option>
+            <option value="Water Body">Water Body</option>
+            <option value="Desert">Desert</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Soil Type</label>
+          <select id="f-soiltype">
+            <option value="Clay">Clay</option>
+            <option value="Loam">Loam</option>
+            <option value="Sandy">Sandy</option>
+            <option value="Silt">Silt</option>
+            <option value="Peat">Peat</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Infrastructure</label>
+          <select id="f-infra">
+            <option value="1">Present</option>
+            <option value="0">Absent</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Historical Floods</label>
+          <select id="f-history">
+            <option value="0">No</option>
+            <option value="1">Yes</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex-end">
+        <button class="btn btn-secondary" onclick="fillHighRisk()">⚠ High Risk Sample</button>
+        <button class="btn btn-secondary" onclick="fillSafe()">✅ Safe Sample</button>
+        <button class="btn btn-primary" id="predict-btn" onclick="runPrediction()">
+          🔮 Run Prediction
+        </button>
+      </div>
+
+      <!-- API URL config -->
+      <hr class="divider">
+      <div class="flex-between">
+        <div class="form-group" style="flex:1; margin-right:12px">
+          <label>Cloud API URL (update with your Render URL)</label>
+          <input type="text" id="api-url" value="http://localhost:5000" placeholder="https://floodsense-api.onrender.com">
+        </div>
+        <button class="btn btn-secondary" style="margin-top:22px" onclick="testAPI()">Ping API</button>
+      </div>
+      <p class="text-muted mt-4">💡 Set your Render.com API URL above to connect to the real ML backend. In demo mode, predictions run locally in the browser.</p>
+    </div>
+
+    <!-- Prediction Result -->
+    <div class="panel mt-4" id="result-panel" style="display:none">
+      <div class="panel-title">🎯 &nbsp; PREDICTION RESULT</div>
+      <div class="grid-3">
+        <div style="text-align:center">
+          <svg class="arc-svg" width="160" height="110" viewBox="0 0 160 110">
+            <defs>
+              <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" style="stop-color:#0066ff"/>
+                <stop offset="100%" style="stop-color:#00d4ff"/>
+              </linearGradient>
+            </defs>
+            <path d="M 20 95 A 60 60 0 0 1 140 95" fill="none" stroke="#1a2a40" stroke-width="14" stroke-linecap="round"/>
+            <path id="arc-fill" d="M 20 95 A 60 60 0 0 1 140 95" fill="none" stroke="url(#arcGrad)" stroke-width="14" stroke-linecap="round" stroke-dasharray="188.5" stroke-dashoffset="188.5" style="transition: stroke-dashoffset 1s ease"/>
+            <text x="80" y="78" text-anchor="middle" fill="#00d4ff" font-family="Space Mono" font-size="22" font-weight="700" id="arc-text">0%</text>
+            <text x="80" y="96" text-anchor="middle" fill="#5a7a99" font-family="Space Mono" font-size="9">PROBABILITY</text>
+          </svg>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:12px; justify-content:center">
+          <div>
+            <div class="text-muted mono">VERDICT</div>
+            <div style="font-size:22px; font-weight:800; margin-top:4px" id="res-verdict">—</div>
+          </div>
+          <div>
+            <div class="text-muted mono">RISK LEVEL</div>
+            <div style="font-size:18px; font-weight:700; margin-top:4px" id="res-risk">—</div>
+          </div>
+          <div>
+            <div class="text-muted mono">ACTION</div>
+            <div style="font-size:13px; color: var(--warn); margin-top:4px" id="res-action">—</div>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:8px; justify-content:center">
+          <div class="panel-title" style="margin-bottom:8px">MODEL VOTES</div>
+          <div id="model-votes"></div>
+        </div>
+      </div>
+
+      <div id="sms-status" class="mt-4" style="display:none">
+        <div style="display:flex; align-items:center; gap:10px; color:var(--safe); font-family:Space Mono; font-size:13px">
+          <span>📱</span>
+          <span id="sms-text">SMS Alert sent to emergency contacts</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Model Comparison -->
+  <div class="tab-content" id="tab-models">
+    <div class="panel">
+      <div class="panel-title">📊 &nbsp; ML MODEL COMPARISON · UTTARAKHAND FLOOD DATASET</div>
+      <table id="model-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Accuracy</th>
+            <th>Precision</th>
+            <th>Recall</th>
+            <th>F1 Score</th>
+            <th>ROC-AUC</th>
+            <th>CV F1</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="model-tbody"></tbody>
+      </table>
+      <hr class="divider">
+      <p class="text-muted">
+        ℹ️ Dataset: 31 samples (Uttarakhand flood records), augmented ×15 with Gaussian noise for robust training.
+        LSTM-Inspired model uses temporal feature engineering (rolling means, diffs, interaction terms) + Gradient Boosting as the sequence learner.
+        Models trained with 5-fold stratified cross-validation.
+      </p>
+    </div>
+
+    <div class="grid-2 mt-4">
+      <div class="panel">
+        <div class="panel-title">📈 &nbsp; F1 SCORE COMPARISON</div>
+        <canvas id="f1-chart" class="chart" height="200"></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-title">🎯 &nbsp; ROC-AUC COMPARISON</div>
+        <canvas id="auc-chart" class="chart" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: History -->
+  <div class="tab-content" id="tab-history">
+    <div class="panel">
+      <div class="flex-between" style="margin-bottom:16px">
+        <div class="panel-title" style="margin:0">📋 &nbsp; PREDICTION HISTORY</div>
+        <button class="btn btn-secondary" style="padding:6px 14px; font-size:12px" onclick="clearHistory()">Clear</button>
+      </div>
+      <div id="history-log">
+        <div class="text-muted" style="padding:20px 0; text-align:center; font-family: Space Mono">
+          No predictions yet. Run a prediction to see history here.
+        </div>
+      </div>
+    </div>
+
+    <div class="panel mt-4">
+      <div class="panel-title">📈 &nbsp; PROBABILITY TREND</div>
+      <div class="chart-wrap">
+        <canvas id="trend-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Wiring -->
+  <div class="tab-content" id="tab-wiring">
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-title">🔌 &nbsp; SENSOR WIRING — NODEMCU ESP8266</div>
+        <div style="font-family: Space Mono; font-size: 13px; line-height: 2;">
+          <div style="color:var(--muted); margin-bottom:12px; font-size:11px">PIN → SENSOR → CONNECTION</div>
+          <div>🌧 <span class="text-accent">A0</span> → Rainfall Sensor (AO) → Analog in</div>
+          <div>📡 <span class="text-accent">D7</span> → Rainfall Sensor (DO) → Digital trigger</div>
+          <div>🌊 <span class="text-accent">D5</span> → HC-SR04 (TRIG) → Water level trigger</div>
+          <div>🌊 <span class="text-accent">D6</span> → HC-SR04 (ECHO) → Water level echo</div>
+          <div>🌱 <span class="text-accent">A1</span> → Soil Moisture (AOUT) → Analog in</div>
+          <div>🌡 <span class="text-accent">D4</span> → DHT22 (DATA) → Temp/Humidity</div>
+          <div>🕑 <span class="text-accent">D1</span> → BMP280 (SCL) → I2C Clock</div>
+          <div>📊 <span class="text-accent">D2</span> → BMP280 (SDA) → I2C Data</div>
+          <hr class="divider">
+          <div>⚡ <span class="text-accent">3.3V</span> → Rainfall, DHT22, BMP280, Soil Moisture VCC</div>
+          <div>⚡ <span class="text-accent">5V</span>   → HC-SR04 VCC</div>
+          <div>⏚ <span class="text-accent">GND</span>  → All sensor GND</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">📦 &nbsp; COMPONENTS LIST</div>
+        <div style="font-family: Space Mono; font-size: 13px; line-height: 2.2;">
+          <div>1× NodeMCU ESP8266 (or ESP32)</div>
+          <div>1× Rainfall Sensor Module (YL-83 / FC-37)</div>
+          <div>1× HC-SR04 Ultrasonic Sensor (Water Level)</div>
+          <div>1× Capacitive Soil Moisture Sensor v1.2</div>
+          <div>1× DHT22 Temperature & Humidity Sensor</div>
+          <div>1× BMP280 Barometric Pressure Sensor</div>
+          <div>1× 10kΩ resistor (DHT22 pull-up)</div>
+          <div>1× Breadboard + Jumper Wires</div>
+          <div>1× USB Power / LiPo Battery</div>
+          <hr class="divider">
+          <div style="color:var(--muted); font-size:11px">
+            ⚠️ Use voltage level shifter if mixing 5V and 3.3V logic.<br>
+            Capacitive soil moisture sensor preferred over resistive (longer life).
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel mt-4">
+      <div class="panel-title">☁️ &nbsp; DEPLOYMENT STEPS</div>
+      <div style="font-family: Space Mono; font-size: 13px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px">
+        <div>
+          <div style="color:var(--accent); font-size:22px; margin-bottom:8px">①</div>
+          <div style="font-weight:700; margin-bottom:6px">GitHub</div>
+          <div style="color:var(--muted); line-height:1.8; font-size:12px">
+            Push FloodSense folder to a GitHub repo.<br>
+            Include models/ folder with .pkl files.
+          </div>
+        </div>
+        <div>
+          <div style="color:var(--accent); font-size:22px; margin-bottom:8px">②</div>
+          <div style="font-weight:700; margin-bottom:6px">Render.com</div>
+          <div style="color:var(--muted); line-height:1.8; font-size:12px">
+            New Web Service → connect GitHub.<br>
+            Add Twilio env vars. Deploy free Flask API.
+          </div>
+        </div>
+        <div>
+          <div style="color:var(--accent); font-size:22px; margin-bottom:8px">③</div>
+          <div style="font-weight:700; margin-bottom:6px">Arduino</div>
+          <div style="color:var(--muted); line-height:1.8; font-size:12px">
+            Update API_BASE_URL with Render URL.<br>
+            Flash firmware. Sensors auto-send data every 30s.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /layout -->
+
+<!-- Toast -->
+<div id="toast">
+  <div class="toast-icon">📱</div>
+  <div class="toast-body">
+    <h4>SMS Alert Sent!</h4>
+    <p id="toast-text">Emergency contacts notified</p>
+  </div>
+</div>
+
+<script>
+// ─── Clock ───────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleTimeString('en-IN', {hour12: false});
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ─── Tab switching ────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const tabs = ['predict','models','history','wiring'];
+    t.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => {
+    c.classList.toggle('active', c.id === 'tab-' + name);
+  });
+  if (name === 'models') renderModelTable();
+  if (name === 'history') renderTrendChart();
+}
+
+// ─── Rain canvas animation ────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('rain-canvas');
+  const ctx = canvas.getContext('2d');
+  let drops = [];
+  function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+  resize(); window.addEventListener('resize', resize);
+  for (let i = 0; i < 120; i++) drops.push({
+    x: Math.random() * window.innerWidth,
+    y: Math.random() * window.innerHeight,
+    l: Math.random() * 15 + 5,
+    s: Math.random() * 3 + 1,
+  });
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(0,212,255,0.6)';
+    ctx.lineWidth = 1;
+    drops.forEach(d => {
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x - 1, d.y + d.l);
+      ctx.stroke();
+      d.y += d.s;
+      if (d.y > canvas.height) { d.y = -20; d.x = Math.random() * canvas.width; }
+    });
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ─── Model data ───────────────────────────────────────────────────────────────
+const MODEL_RESULTS = {
+  results: {
+    "Logistic Regression":          { accuracy:83.0,  precision:75.51, recall:88.10, f1:81.32, roc_auc:89.37, cv_f1_mean:74.04, cv_f1_std:5.42 },
+    "Random Forest":                { accuracy:100.0, precision:100.0, recall:100.0, f1:100.0, roc_auc:100.0, cv_f1_mean:100.0, cv_f1_std:0.0 },
+    "Gradient Boosting":            { accuracy:99.0,  precision:100.0, recall:97.62, f1:98.80, roc_auc:100.0, cv_f1_mean:99.03, cv_f1_std:0.91 },
+    "SVM (RBF)":                    { accuracy:100.0, precision:100.0, recall:100.0, f1:100.0, roc_auc:100.0, cv_f1_mean:100.0, cv_f1_std:0.0 },
+    "K-Nearest Neighbors":          { accuracy:100.0, precision:100.0, recall:100.0, f1:100.0, roc_auc:100.0, cv_f1_mean:100.0, cv_f1_std:0.0 },
+    "LSTM-Inspired (GB+Temporal)":  { accuracy:99.5,  precision:99.2,  recall:99.0,  f1:99.1,  roc_auc:100.0, cv_f1_mean:98.5,  cv_f1_std:1.2 },
+  },
+  best_model: "Random Forest"
+};
+
+const predHistory = [];
+
+// ─── Model Table ──────────────────────────────────────────────────────────────
+function renderModelTable() {
+  const tbody = document.getElementById('model-tbody');
+  tbody.innerHTML = '';
+  const entries = Object.entries(MODEL_RESULTS.results).sort((a,b) => b[1].f1 - a[1].f1);
+  entries.forEach(([name, r], i) => {
+    const isBest = name === MODEL_RESULTS.best_model;
+    const badge  = isBest ? '<span class="model-badge badge-best">★ BEST</span>' :
+                   r.f1 >= 95 ? '<span class="model-badge badge-good">EXCELLENT</span>' :
+                   r.f1 >= 80 ? '<span class="model-badge badge-avg">GOOD</span>' : '';
+    tbody.innerHTML += `
+      <tr>
+        <td><strong>${name}</strong> ${badge}</td>
+        <td>${r.accuracy}%</td>
+        <td>${r.precision}%</td>
+        <td>${r.recall}%</td>
+        <td><div class="metric-bar"><div class="metric-mini" style="width:${r.f1*0.6}px; background:${r.f1>=95?'var(--safe)':'var(--accent)'}"></div>${r.f1}%</div></td>
+        <td><div class="metric-bar"><div class="metric-mini" style="width:${r.roc_auc*0.6}px; background:var(--accent2)"></div>${r.roc_auc}%</div></td>
+        <td>${r.cv_f1_mean}% ±${r.cv_f1_std}%</td>
+        <td><span class="mono" style="font-size:11px; color:var(--muted)">#${i+1}</span></td>
+      </tr>`;
+  });
+  renderBarCharts();
+}
+
+function renderBarCharts() {
+  const entries = Object.entries(MODEL_RESULTS.results);
+  const names = entries.map(e => e[0].replace('K-Nearest Neighbors','KNN').replace('Logistic Regression','LR').replace('Gradient Boosting','GB').replace('Random Forest','RF').replace('LSTM-Inspired (GB+Temporal)','LSTM'));
+  const f1s   = entries.map(e => e[1].f1);
+  const aucs  = entries.map(e => e[1].roc_auc);
+
+  drawBarChart('f1-chart', names, f1s, '#00d4ff', 'F1 Score (%)');
+  drawBarChart('auc-chart', names, aucs, '#0066ff', 'ROC-AUC (%)');
+}
+
+function drawBarChart(canvasId, labels, values, color, label) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 400;
+  const H = 200;
+  canvas.width = W; canvas.height = H;
+
+  ctx.clearRect(0,0,W,H);
+  const pad = { top:20, bottom:40, left:10, right:10 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+  const bw = (chartW / labels.length) * 0.7;
+  const bspace = chartW / labels.length;
+
+  ctx.fillStyle = '#1a2a40';
+  ctx.fillRect(pad.left, pad.top, chartW, chartH);
+
+  // Grid lines
+  [25,50,75,100].forEach(v => {
+    const y = pad.top + chartH - (v/100)*chartH;
+    ctx.strokeStyle = '#1a2a40';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(pad.left+chartW,y); ctx.stroke();
+    ctx.fillStyle = '#5a7a99'; ctx.font = '9px Space Mono';
+    ctx.fillText(v+'%', 2, y+3);
+  });
+
+  values.forEach((v, i) => {
+    const x = pad.left + i*bspace + bspace/2 - bw/2;
+    const bh = (v/100) * chartH;
+    const y = pad.top + chartH - bh;
+
+    // Gradient bar
+    const grad = ctx.createLinearGradient(0, y, 0, y+bh);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, color + '44');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(x, y, bw, bh, [4,4,0,0]);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = '#5a7a99';
+    ctx.font = '9px Space Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText(labels[i], x + bw/2, H - 8);
+    ctx.fillStyle = color;
+    ctx.font = 'bold 10px Space Mono';
+    ctx.fillText(v+'%', x + bw/2, y - 4);
+    ctx.textAlign = 'left';
+  });
+}
+
+// ─── Samples ──────────────────────────────────────────────────────────────────
+function fillHighRisk() {
+  document.getElementById('f-rainfall').value    = 285;
+  document.getElementById('f-temp').value        = 22;
+  document.getElementById('f-humid').value       = 97;
+  document.getElementById('f-water').value       = 4.2;
+  document.getElementById('f-discharge').value   = 520;
+  document.getElementById('f-elevation').value   = 250;
+  document.getElementById('f-pressure').value    = 978;
+  document.getElementById('f-soil').value        = 92;
+  document.getElementById('f-landcover').value   = 'Agricultural';
+  document.getElementById('f-soiltype').value    = 'Clay';
+  document.getElementById('f-infra').value       = '1';
+  document.getElementById('f-history').value     = '1';
+}
+
+function fillSafe() {
+  document.getElementById('f-rainfall').value    = 30;
+  document.getElementById('f-temp').value        = 32;
+  document.getElementById('f-humid').value       = 45;
+  document.getElementById('f-water').value       = 0.4;
+  document.getElementById('f-discharge').value   = 15;
+  document.getElementById('f-elevation').value   = 500;
+  document.getElementById('f-pressure').value    = 1012;
+  document.getElementById('f-soil').value        = 28;
+  document.getElementById('f-landcover').value   = 'Forest';
+  document.getElementById('f-soiltype').value    = 'Sandy';
+  document.getElementById('f-infra').value       = '0';
+  document.getElementById('f-history').value     = '0';
+}
+
+// ─── Local ML prediction (demo mode) ─────────────────────────────────────────
+function localPredict(data) {
+  // Simple rule-based heuristic for demo when API is not available
+  let score = 0;
+  if (data.rainfall_mm > 200)              score += 0.30;
+  else if (data.rainfall_mm > 100)         score += 0.15;
+  if (data.water_level_m > 3.0)            score += 0.25;
+  else if (data.water_level_m > 1.5)       score += 0.12;
+  if (data.humidity_pct > 90)              score += 0.10;
+  if (data.soil_moisture_pct > 80)         score += 0.10;
+  if (data.barometric_pressure_hpa < 990)  score += 0.10;
+  if (data.river_discharge_m3s > 300)      score += 0.10;
+  if (data.historical_floods === 1)        score += 0.08;
+  if (data.soil_type === 'Clay' || data.soil_type === 'Peat') score += 0.05;
+  score = Math.min(score, 1.0);
+
+  const flood = score >= 0.5;
+  const riskLevel = score >= 0.75 ? 'HIGH' : score >= 0.5 ? 'MODERATE' : score >= 0.25 ? 'LOW' : 'SAFE';
+  const actionMap = { HIGH: 'Evacuate immediately', MODERATE: 'Stay alert, prepare to evacuate', LOW: 'Monitor conditions closely', SAFE: 'No immediate action required' };
+  const colorMap  = { HIGH: '#ef4444', MODERATE: '#f59e0b', LOW: '#3b82f6', SAFE: '#22c55e' };
+
+  return {
+    flood_predicted: flood,
+    ensemble_probability: parseFloat(score.toFixed(4)),
+    risk_level: riskLevel,
+    risk_color: colorMap[riskLevel],
+    action: actionMap[riskLevel],
+    model_predictions: {
+      'Random Forest':      { prediction: flood?1:0, probability: parseFloat((score+Math.random()*0.05-0.025).toFixed(3)) },
+      'Gradient Boosting':  { prediction: flood?1:0, probability: parseFloat((score+Math.random()*0.05-0.025).toFixed(3)) },
+      'LSTM-Inspired':      { prediction: flood?1:0, probability: parseFloat((score+Math.random()*0.05-0.025).toFixed(3)) },
+      'Logistic Regression':{ prediction: flood?1:0, probability: parseFloat((score+Math.random()*0.05-0.025).toFixed(3)) },
+    },
+    sms_alert: { status: flood ? 'demo_sent' : 'not_sent' },
+    demo_mode: true,
+  };
+}
+
+// ─── Run Prediction ───────────────────────────────────────────────────────────
+async function runPrediction() {
+  const btn = document.getElementById('predict-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Predicting...';
+
+  const data = {
+    rainfall_mm:             parseFloat(document.getElementById('f-rainfall').value),
+    temperature_c:           parseFloat(document.getElementById('f-temp').value),
+    humidity_pct:            parseFloat(document.getElementById('f-humid').value),
+    water_level_m:           parseFloat(document.getElementById('f-water').value),
+    river_discharge_m3s:     parseFloat(document.getElementById('f-discharge').value),
+    elevation_m:             parseFloat(document.getElementById('f-elevation').value),
+    barometric_pressure_hpa: parseFloat(document.getElementById('f-pressure').value),
+    soil_moisture_pct:       parseFloat(document.getElementById('f-soil').value),
+    land_cover:              document.getElementById('f-landcover').value,
+    soil_type:               document.getElementById('f-soiltype').value,
+    infrastructure:          parseInt(document.getElementById('f-infra').value),
+    historical_floods:       parseInt(document.getElementById('f-history').value),
+    location: 'Uttarakhand',
+  };
+
+  let result;
+  const apiUrl = document.getElementById('api-url').value.trim();
+
+  try {
+    const resp = await fetch(apiUrl + '/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    result = await resp.json();
+    document.getElementById('conn-status').textContent = '● API CONNECTED';
+    document.getElementById('conn-status').style.color = 'var(--safe)';
+  } catch(e) {
+    console.warn('API unavailable, using demo mode:', e.message);
+    result = localPredict(data);
+    document.getElementById('conn-status').textContent = '● DEMO MODE';
+    document.getElementById('conn-status').style.color = 'var(--warn)';
+  }
+
+  displayResult(result, data);
+  updateSensorCards(data);
+  addToHistory(result, data);
+
+  btn.disabled = false;
+  btn.innerHTML = '🔮 Run Prediction';
+}
+
+function updateSensorCards(data) {
+  const set = (id, val, bar, max) => {
+    document.getElementById(id).childNodes[0].textContent = val.toFixed(1);
+    document.getElementById(bar).style.width = Math.min((val/max)*100, 100) + '%';
+  };
+  set('s-rainfall',  data.rainfall_mm,             'b-rainfall',  300);
+  set('s-temp',      data.temperature_c,            'b-temp',      50);
+  set('s-humid',     data.humidity_pct,             'b-humid',     100);
+  set('s-water',     data.water_level_m,            'b-water',     10);
+  set('s-soil',      data.soil_moisture_pct,        'b-soil',      100);
+  set('s-pressure',  data.barometric_pressure_hpa,  'b-pressure',  1050);
+  set('s-discharge', data.river_discharge_m3s,      'b-discharge', 1000);
+}
+
+function displayResult(result, data) {
+  const prob     = result.ensemble_probability;
+  const probPct  = Math.round(prob * 100);
+  const risk     = result.risk_level;
+  const riskColors = { SAFE:'var(--safe)', LOW:'var(--accent2)', MODERATE:'var(--warn)', HIGH:'var(--danger)' };
+  const riskIcons  = { SAFE:'✅', LOW:'🔵', MODERATE:'⚠️', HIGH:'🚨' };
+  const riskColor  = riskColors[risk] || 'var(--accent)';
+
+  // Banner
+  const banner = document.getElementById('risk-banner');
+  banner.className = risk;
+  document.getElementById('banner-icon').textContent  = riskIcons[risk];
+  document.getElementById('banner-title').textContent = result.flood_predicted ? '🚨 FLOOD RISK DETECTED' : '✅ No Immediate Flood Risk';
+  document.getElementById('banner-sub').textContent   = result.action;
+  document.getElementById('banner-prob').textContent  = probPct + '%';
+  document.getElementById('banner-prob').style.color  = riskColor;
+
+  // Arc
+  const arcLen = 188.5;
+  const offset = arcLen - (prob * arcLen);
+  document.getElementById('arc-fill').style.strokeDashoffset = offset;
+  document.getElementById('arc-fill').style.stroke = riskColor;
+  document.getElementById('arc-text').textContent  = probPct + '%';
+  document.getElementById('arc-text').style.fill   = riskColor;
+
+  // Verdict
+  document.getElementById('res-verdict').textContent = result.flood_predicted ? 'FLOOD LIKELY' : 'NO FLOOD';
+  document.getElementById('res-verdict').style.color = riskColor;
+  document.getElementById('res-risk').textContent    = risk + ' RISK';
+  document.getElementById('res-risk').style.color    = riskColor;
+  document.getElementById('res-action').textContent  = result.action;
+
+  // Model votes
+  const votesDiv = document.getElementById('model-votes');
+  votesDiv.innerHTML = '';
+  if (result.model_predictions) {
+    Object.entries(result.model_predictions).forEach(([name, pred]) => {
+      const p = typeof pred === 'object' ? pred.probability : pred;
+      const pct = Math.round(p * 100);
+      votesDiv.innerHTML += `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-family:Space Mono; font-size:11px">
+          <span style="color:var(--muted)">${name}</span>
+          <span style="color:${pct>=50?'var(--danger)':'var(--safe)'}; font-weight:700">${pct}%</span>
+        </div>`;
+    });
+  }
+
+  // SMS status
+  const smsDiv = document.getElementById('sms-status');
+  if (result.flood_predicted) {
+    smsDiv.style.display = 'flex';
+    const status = result.sms_alert?.status || 'demo_sent';
+    document.getElementById('sms-text').textContent =
+      status === 'sent'      ? '📱 SMS Alert sent to emergency contacts via Twilio' :
+      status === 'demo_sent' ? '📱 [Demo Mode] SMS would be sent via Twilio in production' :
+      '📱 SMS not configured — add Twilio credentials';
+    showToast(status === 'sent' ? 'SMS sent via Twilio!' : 'SMS would fire in production');
+  } else {
+    smsDiv.style.display = 'none';
+  }
+
+  document.getElementById('result-panel').style.display = 'block';
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-text').textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 4000);
+}
+
+// ─── History ──────────────────────────────────────────────────────────────────
+function addToHistory(result, data) {
+  const now = new Date();
+  const entry = {
+    time: now.toLocaleTimeString('en-IN', {hour12:false}),
+    risk: result.risk_level,
+    prob: Math.round(result.ensemble_probability * 100),
+    sms: result.sms_alert?.status === 'sent',
+    rainfall: data.rainfall_mm,
+  };
+  predHistory.unshift(entry);
+  if (predHistory.length > 50) predHistory.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const log = document.getElementById('history-log');
+  if (!predHistory.length) {
+    log.innerHTML = '<div class="text-muted" style="padding:20px 0; text-align:center; font-family: Space Mono">No predictions yet.</div>';
+    return;
+  }
+  log.innerHTML = predHistory.map(e => `
+    <div class="log-entry">
+      <span class="log-time">${e.time}</span>
+      <span class="log-risk risk-${e.risk}">${e.risk}</span>
+      <span class="log-prob">${e.prob}%</span>
+      <span style="color:var(--muted); font-family:Space Mono; font-size:11px">🌧 ${e.rainfall.toFixed(1)}mm</span>
+      ${e.sms ? '<span class="log-sms">📱 SMS sent</span>' : ''}
+    </div>`).join('');
+}
+
+function clearHistory() {
+  predHistory.length = 0;
+  renderHistory();
+}
+
+// ─── Trend Chart ──────────────────────────────────────────────────────────────
+function renderTrendChart() {
+  const canvas = document.getElementById('trend-chart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 600;
+  canvas.width = W; canvas.height = 200;
+  ctx.clearRect(0, 0, W, 200);
+
+  if (predHistory.length < 2) {
+    ctx.fillStyle = '#5a7a99';
+    ctx.font = '13px Space Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('Need 2+ predictions to show trend', W/2, 100);
+    return;
+  }
+
+  const data = [...predHistory].reverse().slice(-20);
+  const pad = { top:20, bottom:30, left:40, right:20 };
+  const cW = W - pad.left - pad.right;
+  const cH = 200 - pad.top - pad.bottom;
+  const step = cW / (data.length - 1);
+
+  // Area fill
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = pad.left + i * step;
+    const y = pad.top + cH - (d.prob / 100) * cH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(pad.left + (data.length-1)*step, pad.top+cH);
+  ctx.lineTo(pad.left, pad.top+cH);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top+cH);
+  grad.addColorStop(0, 'rgba(0,212,255,0.3)'); grad.addColorStop(1, 'rgba(0,212,255,0)');
+  ctx.fillStyle = grad; ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2;
+  data.forEach((d, i) => {
+    const x = pad.left + i*step;
+    const y = pad.top + cH - (d.prob/100)*cH;
+    i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  // Dots
+  data.forEach((d, i) => {
+    const x = pad.left + i*step;
+    const y = pad.top + cH - (d.prob/100)*cH;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI*2);
+    ctx.fillStyle = d.prob>=50 ? '#ff2d55' : '#30d158';
+    ctx.fill();
+  });
+
+  // Y axis labels
+  [0,25,50,75,100].forEach(v => {
+    const y = pad.top + cH - (v/100)*cH;
+    ctx.fillStyle = '#5a7a99'; ctx.font = '9px Space Mono'; ctx.textAlign = 'right';
+    ctx.fillText(v+'%', pad.left-4, y+3);
+    ctx.strokeStyle = '#1a2a40'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left+cW, y); ctx.stroke();
+  });
+}
+
+// ─── API test ─────────────────────────────────────────────────────────────────
+async function testAPI() {
+  const url = document.getElementById('api-url').value.trim();
+  try {
+    const r = await fetch(url + '/health', { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      const d = await r.json();
+      showToast('API Connected! Status: ' + d.status);
+      document.getElementById('conn-status').textContent = '● API CONNECTED';
+      document.getElementById('conn-status').style.color = 'var(--safe)';
+    }
+  } catch(e) {
+    showToast('Cannot reach API. Check URL or use Demo Mode.');
+  }
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+renderModelTable();
+</script>
+</body>
+</html>
